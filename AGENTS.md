@@ -1,81 +1,61 @@
-# AGENTS.md – Battleship Battle Royale (Version 2.0)
+# AGENTS.md – Leitplanken für KI-Assistenten (Battleship Battle Royale)
 
-## 1. Projektkontext & Teamstruktur
-Dieses Repository enthält ein rundenbasiertes Multiplayer-LAN-Spiel, das *Schiffe versenken* als **Battle Royale** auf einer gemeinsamen Seekarte neu interpretiert.
-- **Primäres Lernziel:** Strukturierte Zusammenarbeit eines 7-köpfigen Teams mit **Gemini** als KI-Assistent (Contract-First, saubere Git-Workflows, nachvollziehbare Pull Requests).
-- **Team-Aufteilung (7 Personen):**
-  - **Backend (Java / Spring Boot):** Daniel, Julius, Rey
-  - **Frontend (Web-UI):** Julian, Alex, Alex
-  - **Pixel-Art & Visuelle Assets:** Krushali
-- **Koordination:** Absprachen und Dokumentation laufen über Discord; Code-Integration erfolgt ausschließlich über feature-basierte Git-Branches und Pull Requests.
-- **Leitlinie gegen Zeitdruck:** Da Game-Design-Zeit und Team-Abstimmung unsere größten Engpässe sind[cite: 1], gilt strikt: **Erst den Core-Loop stabil bauen, danach optionale Mechaniken ergänzen.**
+Diese Datei definiert verbindliche Architektur-, Code- und Stilvorgaben für KI-gestützte Entwicklung (Gemini, Copilot, Cursor etc.) im Projekt **Battleship Battle Royale**. Halte dich strikt an diese Regeln.
 
 ---
 
-## 2. Tech-Stack & Architektur (Single Source of Truth)
-- **Backend:** Java 21+, Spring Boot 3.x (`spring-boot-starter-web`, `spring-boot-starter-validation`)[cite: 1].
-- **Frontend:** TypeScript + React + Vite + Tailwind CSS (ausgeliefert als statisches Build über `src/main/resources/static` im Spring-Boot-Server)[cite: 1].
-- **Host-Modell (Listen-Server):** Der Spieler, der die Runde erstellt, startet damit den Spring-Boot-Server auf seinem Rechner und spielt selbst im Browser mit[cite: 1]. Alle anderen treten über seine lokale LAN-IP bei.
-- **Verbindungsabbruch:** Bricht die Verbindung zum Host ab oder wird der Server beendet, ist die Runde sofort beendet[cite: 1] (keine Host-Migration, keine Persistenz/Datenbank).
-- **Authoritative Server („Lügen bringt nichts“):** Alle Schiffspositionen, Treffer, Sichtbarkeiten und Timer liegen ausschließlich im RAM des Spring-Boot-Backends[cite: 1]. Das Frontend ist ein reiner Anzeige-Client ohne eigene Spiellogik.
-- **Kommunikation:** REST-API (`@RestController`) + Short Polling (`GET /api/games/{gameId}/state?playerId=...`) mit `stateVersion`-Zähler zur Vermeidung von Race Conditions.
+## 1. Projektübersicht & Architektur
+
+* **Spielkonzept:** Rundenbasiertes/Echtzeit-nahes Multiplayer-„Schiffe versenken“ im Battle-Royale-Modus für ein lokales Netzwerk (LAN/WLAN).
+* **Team-Setup (7 Personen):** 3× Backend, 3× Frontend, 1× Pixel-Art.
+* **Host-Modell (Listen-Server):** Ein Host-Laptop startet das Spring-Boot-Backend (`0.0.0.0:8080`). Im LAN-Betrieb liefert Spring Boot das gebaute React-Frontend direkt aus `backend/src/main/resources/static/` aus.
+* **Single Source of Truth (SSoT):** Allein das **Backend** hält den Spielzustand im Arbeitsspeicher und berechnet Treffer, Schiffszerstörungen, Item-Effekte, Runden-Timer und Siegbedingungen. Das Frontend ist ein reiner Anzeige- und Eingabe-Client.
+* **Kommunikation:** Zustandslose REST-API (JSON) mit **Short Polling** durch das Frontend (z. B. alle 500–1000 ms).
+* **Spielregeln:** Maßgeblich für alle Zahlenwerte, Schiffstypen, Items und Phasen ist ausschließlich `docs/GAME_RULES.md`. Erfinde keine eigenen Regeln, sondern frage nach, falls dort etwas fehlt.
 
 ---
 
-## 3. Verbindliche Spielregeln (Core Scope)
-Diese Regeln sind fest beschlossen und bilden das Fundament für Backend und Frontend:
+## 2. Tech-Stack & Verbindliche Versionen
 
-### Lobby & Spielwelt
-- **Spieleranzahl:** Konfigurierbar für **4 oder 8 Spieler** pro Partie[cite: 1].
-- **Gemeinsame Spielwelt („Das Meer“):** Alle Spieler agieren auf **einem großen gemeinsamen Ozean-Grid** (kein getrenntes Board pro Spieler)[cite: 1].
-- **Sichtbarkeit (Fog of War):** Jeder Spieler sieht auf dem Meer seine eigenen Schiffe sowie aufgedeckte/getroffene Felder und Effekte in seiner Sichtweite[cite: 1]. Verdeckte gegnerische Schiffe werden vom Backend vor dem Versand des JSON-Responses strikt herausgefiltert.
+### Backend (`backend/`)
+* **Sprache & Runtime:** Java 21 (Bytecode-Target 21)
+* **Framework:** Spring Boot 4.2.x (`spring-boot-starter-webmvc`, `spring-boot-starter-validation`)
+* **Build-Tool:** Maven Wrapper (`./mvnw` bzw. `.\mvnw.cmd`)
+* **Datenhaltung:** Ausschließlich In-Memory (`ConcurrentHashMap`, thread-sichere Domänenobjekte). Keine Datenbank.
 
-### Rundenablauf & Zeitlimit
-- **Zugbasiert mit Timer:** Spieler sind nacheinander am Zug[cite: 1]. Pro Zugphase gilt ein **Zeitlimit von 1 Minute (60 Sekunden)**[cite: 1]. Läuft die Zeit im Backend ab, wird die aktuelle Phase automatisch übersprungen bzw. beendet.
-- **Drei feste Phasen pro Zug (strikt in dieser Reihenfolge):**
-  1. **`USE_ITEM` (Items nutzen):** Der aktive Spieler kann ein verfügbares Item einsetzen (oder die Phase überspringen)[cite: 1].
-  2. **`SHOOT` (Schießen):** Der aktive Spieler feuert auf Zielkoordinaten im gemeinsamen Meer[cite: 1].
-  3. **`MOVE` (Bewegen):** Der aktive Spieler bewegt ein Schiff entsprechend seiner Bewegungsregeln[cite: 1].
-
-### Schiffsarten (Basis-Klassen)
-Folgende Schiffsarchetypen sind als Grundgerüst vorgesehen[cite: 1]:
-- **Reconnaissance (Aufklärer):** Fokus auf Sichtweite / Mobilität[cite: 1].
-- **Artillerie:** Fokus auf Feuerkraft / Reichweite[cite: 1].
-- **U-Boot:** Besitzt eine Tauch-Mechanik (kann untertauchen)[cite: 1].
+### Frontend (`frontend/`)
+* **Framework:** React 19 + TypeScript (Strict Mode)
+* **Bundler:** Vite 6 (`vite@^6` – **nicht** auf Vite 8/Rolldown aktualisieren)
+* **Styling:** Tailwind CSS v4 über `@tailwindcss/vite` (`@import "tailwindcss";` in `src/index.css` – keine `tailwind.config.js` anlegen)
+* **Assets:** Pixel-Art-Sprites liegen unter `frontend/public/assets/sprites/` und werden im Code über `/assets/sprites/<dateiname>.png` referenziert.
 
 ---
 
-## 4. Backlog & Offene Design-Fragen (WICHTIG FÜR GEMINI)
-Folgende Ideen befinden sich noch in der Konzeptionsphase (im Design-Dokument mit `?` markiert) und sind **noch nicht final beschlossen**[cite: 1].
+## 3. Verbotene Technologien & Anti-Patterns
 
-> **Verbindliche Anweisung an Gemini:** Implementiere **keines** der folgenden Features eigenmächtig! Wenn du Code für Schiffe, Felder, Items oder Rundenphasen schreibst, halte die Architektur jedoch über saubere Interfaces (z. B. `ItemEffect`, `TileModifier`, `ShipAbility`) so erweiterbar, dass diese Punkte später ohne Umbau der Core-Engine ergänzt werden können:
-- **Kollision & Bewegung:** Schiffe rammen?[cite: 1] Schiffe drehen?[cite: 1] Segmentweise Bewegung eines Schiffs bei Treffer?[cite: 1]
-- **Items:** Schiffe teleportieren?[cite: 1] Fallen legen?[cite: 1] Kompass?[cite: 1] Sonar?[cite: 1]
-- **Schiffs-Details:** Konkrete aktive und passive Fähigkeiten je Schiffstyp[cite: 1] (z. B. exakte Regeln fürs Ab- und Auftauchen des U-Boots[cite: 1]).
-- **Umgebung & Events:** Felsen als Hindernisse auf dem Grid und ob diese zerstörbar sind?[cite: 1] Wetterevents wie Meteoriten (erzeugen neue Felsen) oder Tornados?[cite: 1]
-- **Feedback:** Gezielte Event-Benachrichtigungen an Spieler bei bestimmten Aktionen?[cite: 1]
+Verwende unter keinen Umständen folgende Bibliotheken oder Muster:
+1. **Keine Datenbanken / JPA / H2 / SQLite:** Alles lebt nur für die Dauer der Server-Laufzeit im RAM.
+2. **Keine WebSockets / STOMP / SSE:** Die Synchronisation erfolgt ausschließlich über REST + Short Polling.
+3. **Kein Lombok:** Lombok ist **nicht** in der `pom.xml` eingebunden. Nutze niemals `@Data`, `@Getter`, `@Builder` o. Ä. Nutze stattdessen Java `record`s für DTOs und reguläre Java-Klassen mit expliziten Konstruktoren/Methoden für Domänenmodelle.
+4. **Keine Änderung an `spring-boot-starter-webmvc`:** In Spring Boot 4.x ersetzt `webmvc` das frühere `spring-boot-starter-web`. Nicht umschreiben.
+5. **Keine schweren State-Management-Bibliotheken:** Kein Redux, MobX oder Zustand. Nutze React Hooks (`useState`, `useEffect`, `useCallback`, Custom Hooks).
+6. **Keine Spiellogik im Frontend:** Das Frontend prüft höchstens offensichtliche UI-Zustände (z. B. Button deaktivieren, wenn man nicht am Zug ist), trifft aber niemals autoritative Entscheidungen über Treffer oder Spielende.
 
 ---
 
-## 5. Verzeichnisstruktur & Zuständigkeiten
-Um Merge-Konflikte zwischen Backend (Daniel, Julius, Rey) und Frontend (Julian, Alex, Alex, Krushali) zu vermeiden[cite: 1], gilt diese Trennung:
+## 4. Verzeichnisstruktur & Paket-Konventionen
 
 ```text
-backend/
-└── src/
-    ├── main/java/com/battleship/
-    │   ├── controller/       # NUR REST-Endpunkte, Validation, Delegation
-    │   ├── service/          # GameService, TurnTimerService, Locking, Fog-of-War-Filter
-    │   ├── domain/           # Reine Java-Klassen (OceanGrid, Ship, TurnPhase, Item, Rules) – OHNE Spring!
-    │   ├── dto/              # Java Records für Requests & Responses (Single Source of Truth)
-    │   └── exception/        # Domain-Exceptions & @RestControllerAdvice
-    └── test/java/com/battleship/
-        └── domain/           # JUnit-5-Tests für Phasen, Bewegung, Treffer, Timer
-
-frontend/
-├── public/assets/sprites/    # Pixel-Art-Assets (Krushali) – feste Benennung nach Sprite-Manifest
-└── src/
-    ├── api/                  # fetch-Client für Spring-Boot-Endpunkte
-    ├── types/                # TypeScript-Interfaces (1:1 Abbild der Backend-DTOs)
-    ├── components/           # OceanGrid, PhaseIndicator, TimerBar, ShipHud, EventLog
-    └── pages/                # LobbyPage, PlacementPage, GameArenaPage, GameOverPage
+SWE-Schiffe-Versenken/
+├── AGENTS.md
+├── docs/
+│   └── GAME_RULES.md
+├── backend/
+│   ├── pom.xml
+│   └── src/main/java/com/battleship/backend/
+│       ├── BackendApplication.java
+│       ├── controller/      # REST-Endpunkte (@RestController, nur HTTP-Mapping & Validierung)
+│       ├── service/         # Spiellogik, Session-Verwaltung, Timer-Auswertung
+│       ├── domain/          # Interne Spielmodelle (GameSession, Player, Board, Ship, Item)
+│       ├── dto/             # API-Verträge als Java records (Request/Response)
+│       └── exception/       # Custom
